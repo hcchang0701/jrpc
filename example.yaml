@@ -1,0 +1,11 @@
+url: "my_url"
+header: 
+  Authorization:
+    - "Basic xxxxxxxxxxxxxxxxxxxxxxxx"
+
+body:
+  - id: 1
+    jsonrpc: "2.0"
+    method: "my_method"
+    params:
+      - my_param_1: "my_param"
