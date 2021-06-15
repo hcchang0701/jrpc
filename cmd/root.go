@@ -1,5 +1,5 @@
 /*
-Copyright © 2021 NAME HERE <EMAIL ADDRESS>
+Copyright © 2020 NAME HERE <EMAIL ADDRESS>
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,29 +16,35 @@ limitations under the License.
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"github.com/spf13/cobra"
+	"io/ioutil"
+	"net/http"
 	"os"
+	"reflect"
+	"strings"
+
+	"github.com/hcchang0701/jrpc/model"
 
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v2"
 )
 
-var cfgFile string
+var (
+	cfgFile string
+	client  *http.Client
+)
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "jrpc",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	//	Run: func(cmd *cobra.Command, args []string) { },
+	Use:          "jrpc",
+	Short:        "A CLI tool for JSON-RPC 2.0",
+	RunE:         handler,
+	SilenceUsage: true,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -61,7 +67,76 @@ func init() {
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	// rootCmd.Flags().BoolVarP(&isBatch, "batch", "b", false, "Batch mode")
+	client = http.DefaultClient
+}
+
+func handler(cmd *cobra.Command, args []string) error {
+
+	obj := model.Request{}
+	err := readYaml(args[0], &obj)
+	if err != nil {
+		return errors.Wrap(err, "Request file")
+	}
+
+	b, err := json.Marshal(obj.Body)
+	if err != nil {
+		return errors.Wrap(err, "Marshal request")
+	}
+
+	req, err := http.NewRequest(http.MethodPost, obj.Url, bytes.NewReader(b))
+	if err != nil {
+		return errors.Wrap(err, "Init http request")
+	}
+
+	if obj.Header != nil {
+		for k, vals := range obj.Header {
+			for _, val := range vals {
+				req.Header.Add(k, val)
+			}
+		}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "Http")
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return errors.Wrap(err, "Read http body")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return errors.New(string(body))
+	}
+
+	fmt.Println(string(body))
+	return nil
+}
+
+func readYaml(path string, obj interface{}) error {
+
+	if !strings.HasSuffix(path, "yml") && !strings.HasSuffix(path, "yaml") {
+		return errors.New("Expect a yaml file")
+	}
+
+	if reflect.TypeOf(obj).Kind() != reflect.Ptr {
+		return errors.New("Expect a pointer for file content")
+	}
+
+	file, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	err = yaml.Unmarshal(file, obj)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // initConfig reads in config file and ENV variables if set.
